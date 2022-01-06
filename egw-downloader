@@ -162,8 +162,9 @@ if [[ -z "${PDF_URL}" ]]; then
     echo -ne "${TEXT_BLUE}--> Downloading webpage (${PAGE}) ${PAGE_NUM} of ${TOTAL_PAGES} ...${TEXT_RESET}"
     { curl "${CURL_OPTS[@]}" "https://text.egwwritings.org/read/${PAGE}" | xidel -s --html - -e '//*[@id="r-pl"]' > "${TMP}/page-${PAGE_NUM}.html"; } || \
       { echo -e "${TEXT_RED}--> Error downloading webpage${TEXT_RESET}"; exit 1; }
-    if [[ ${PAGE_NUM} != ${TOTAL_PAGES} ]]; then
-      echo '<div style="display:block; clear:both; page-break-after:always;"></div>' >> "${TMP}/page-${PAGE_NUM}.html" # Insert page break
+    sed -i 's/^[ \t]*//' "${TMP}/page-${PAGE_NUM}.html" # Remove space/tab at beginning of lines to help detect duplicate pages
+    if [[ ${PAGE_NUM} != ${TOTAL_PAGES} ]]; then # Insert page break
+      echo '<div style="display:block; clear:both; page-break-after:always;"></div>' >> "${TMP}/page-${PAGE_NUM}.html"
     fi
     if [[ ${PAGE_NUM} -gt 1 ]]; then # Deal with duplicate pages
       if diff -aq "${TMP}/page-$(( ${PAGE_NUM} - 1 )).html" "${TMP}/page-${PAGE_NUM}.html" >/dev/null; then
