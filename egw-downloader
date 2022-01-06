@@ -1,0 +1,215 @@
+#!/bin/bash
+
+# ==============================================================================
+# README:
+#
+# egw-downloader
+# --------------
+# Simple downloader for books from Ellen G. White Estate that are unavailable to download as PDF or EPUB.
+#
+# USAGE
+# -----
+# egw-downloader <book_id> [output_directory]
+#
+# * Get Book ID from URL. eg: (Book ID - 133) https://m.egwwritings.org/en/book/133/info
+#
+# REQUIREMENTS
+# ------------
+# curl exiftool wkhtmltopdf xidel
+#
+# * Download wkhtmltopdf with patched Qt from https://wkhtmltopdf.org
+# * Download xidel from https://github.com/benibela/xidel
+#
+# ==============================================================================
+# MIT License
+#
+# Copyright (c) 2022 CALTLGIN
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+#
+# ==============================================================================
+# REFERENCE:
+# https://www.tobias-schwarz.com/en/posts/10/
+# https://stackoverflow.com/questions/10238363/how-to-get-wc-l-to-print-just-the-number-of-lines-without-file-name#10239606
+# https://www.linuxuprising.com/2019/07/how-to-edit-pdf-metadata-tags-on-linux.html
+# https://stackoverflow.com/questions/52668550/pass-variable-as-options-to-curl-in-shell-script-linux#52668615
+# https://wkhtmltopdf.org/usage/wkhtmltopdf.txt
+# https://exiftool.org/TagNames/PDF.html#Info
+# https://stackoverflow.com/questions/5142429/unix-how-to-delete-files-listed-in-a-file#21848934
+# https://unix.stackexchange.com/questions/385357/cat-files-in-specific-order-based-on-number-in-filename#516714
+#
+# https://a.egwwritings.org/swagger/index.html?urls.primaryName=Covers%20API
+#
+# https://m.egwwritings.org/en
+# https://text.egwwritings.org/allCollection/en
+#
+# ==============================================================================
+# USER SETTINGS:
+DEFAULT_OUTPUT_DIRECTORY="${HOME}/Downloads/egw-downloader"
+PDF_CREATOR='EGW Downloader - github.com/caltlgin/egw-downloader'
+PDF_PRODUCER='CALTLGIN'
+PING_IP_ADDRESS='9.9.9.9'
+UA='Mozilla/5.0 (Windows NT 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'
+CURL_OPTS=(--fail --retry 3 --retry-all-errors --retry-delay 10 --silent --user-agent "${UA}" --cookie "")
+MAX_SLEEP_TIME=1 # Maximum sleep time in seconds between page downloads
+# ==============================================================================
+
+if [ -t 1 ]; then
+  TEXT_RESET='\e[0m'
+  TEXT_BOLD='\e[1m'
+  TEXT_BLACK='\e[0;30m'
+  TEXT_RED='\e[0;31m'
+  TEXT_GREEN='\e[0;32m'
+  TEXT_GREEN_BOLD='\e[1;32m'
+  TEXT_YELLOW='\e[0;33m'
+  TEXT_BLUE='\e[0;34m'
+  TEXT_PURPLE='\e[0;35m'
+  TEXT_PURPLE_BOLD='\e[1;35m'
+  TEXT_CYAN='\e[0;36m'
+fi
+
+check-input() (
+  [[ -n "${1}" ]] || \
+  { echo -e "${TEXT_BOLD}==> USAGE:${TEXT_RESET} ${0} ${TEXT_BLUE}<book_id>${TEXT_RESET} ${TEXT_BLUE}[output_directory]${TEXT_RESET}"; false; }
+)
+depends() (
+  ERR=0; # shellcheck disable=SC2068
+  for DEPENDS in $@; do
+    command -v "${DEPENDS}" >/dev/null || \
+      { echo -e "${TEXT_RED}--> ${DEPENDS} is not installed${TEXT_RESET}"; ERR=1; }
+  done
+  [[ "${ERR}" -eq 0 ]] || false
+)
+test-ping() (
+  ping -q -c 1 "${PING_IP_ADDRESS}" >/dev/null || \
+  { echo -e "${TEXT_RED}--> No internet connection detected${TEXT_RESET}"; false; }
+)
+
+check-input "${1}" || exit 1; BOOK_ID="${1}"
+depends curl exiftool wkhtmltopdf xidel || exit 1
+test-ping || exit 1
+
+# ==============================================================================
+# Create required directories
+TMP="$(mktemp -d)"
+OUT_DIR="${2:-"${DEFAULT_OUTPUT_DIRECTORY}"}"; install -d "${OUT_DIR}"
+
+# Get main webpage for book
+echo -ne "\n${TEXT_PURPLE_BOLD}==> Downloding book information...${TEXT_RESET}"
+curl "${CURL_OPTS[@]}" "https://text.egwwritings.org/book/b${BOOK_ID}" \
+  > "${TMP}/online.html" || { echo -e "${TEXT_RED}--> Error downloading webpage${TEXT_RESET}"; exit 1; }
+if [[ $(grep 'Page Not Found' "${TMP}/online.html") ]]; then
+  echo -e "${TEXT_RED}--> Book ID not found${TEXT_RESET}"; exit 1
+fi
+echo -e "${TEXT_GREEN} DONE${TEXT_RESET}"
+
+# Extract and display book information
+PAGES="$(grep -Po 'href="/read/\K[\d.]+' "${TMP}/online.html" | uniq)"
+TOTAL_PAGES="$(wc -l <<<"${PAGES}")"
+echo -e "${TEXT_BOLD}TMP Directory:${TEXT_RESET}     ${TMP}"
+echo -e "${TEXT_BOLD}Output Directory:${TEXT_RESET}  ${OUT_DIR}"
+echo -e "${TEXT_BOLD}Book URL (Mobile):${TEXT_RESET} https://m.egwwritings.org/en/book/${BOOK_ID}/info"
+echo -e "${TEXT_BOLD}Book URL (Text):${TEXT_RESET}   https://text.egwwritings.org/book/b${BOOK_ID}"
+PDF_URL="$(xidel -s "${TMP}/online.html" -e '//a[ends-with(@href, ".pdf")]/@href')" # Check if PDF is available to download
+if [[ -z "${PDF_URL}" ]]; then PDF_DL='NO'; else PDF_DL="YES (${PDF_URL})"; fi
+echo -e "${TEXT_BOLD}PDF Available:${TEXT_RESET}     ${PDF_DL}"
+COVER_URL="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="og:image"]/@content' | sed 's/_s/_k/')" || \
+  { echo -e "${TEXT_RED}--> No book cover available${TEXT_RESET}"; exit 1; }
+echo -e "${TEXT_BOLD}Cover URL:${TEXT_RESET}         ${COVER_URL}"
+echo -e "${TEXT_BOLD}Book ID:${TEXT_RESET}           ${BOOK_ID}"
+BOOK_CODE="$(grep -Po '>Book code: \K[^<]*' "${TMP}/online.html")" || \
+  { echo -e "${TEXT_RED}--> No book code available${TEXT_RESET}"; exit 1; }
+echo -e "${TEXT_BOLD}Book Code:${TEXT_RESET}         ${BOOK_CODE}"
+TITLE="$(xidel -s "${TMP}/online.html" -e '/html/head/title')" || \
+  { echo -e "${TEXT_RED}--> No book title available${TEXT_RESET}"; exit 1; }
+echo -e "${TEXT_BOLD}Title:${TEXT_RESET}             ${TITLE}"
+AUTHOR="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="og:book:author"]/@content' 2>/dev/null)"
+echo -e "${TEXT_BOLD}Author:${TEXT_RESET}            ${AUTHOR}"
+DESCRIPTION="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="description"]/@content' 2>/dev/null)"
+echo -e "${TEXT_BOLD}Description:${TEXT_RESET}       ${DESCRIPTION}"
+OUT_NAME="$(echo "${BOOK_CODE} - ${TITLE}.pdf" | tr ' ' '_')"
+
+if [[ -z "${PDF_URL}" ]]; then
+  # Download book cover
+  echo -ne "\n${TEXT_PURPLE_BOLD}==> Downloding book cover...${TEXT_RESET}"
+  curl "${CURL_OPTS[@]}" "${COVER_URL}" --output "${TMP}/cover.jpg" || \
+    { echo -e "${TEXT_RED}--> Error downloading cover${TEXT_RESET}"; exit 1; }
+  echo -e "${TEXT_GREEN} DONE${TEXT_RESET}"
+  echo '<style>img{max-width: 100%; height: auto;}</style><img src="cover.jpg">' > "${TMP}/cover.html"
+
+  # Download webpages of book
+  echo -e "\n${TEXT_PURPLE_BOLD}==> Downloding book webpages...${TEXT_RESET}"
+  echo '<style>*{font-family:sans-serif;text-align:justify}p{text-align:justify}.egwlink{font-style:italic;color:grey}.refCode{font-style:italic;color:grey}</style>' \
+    > "${TMP}/book.html" # Setup pdf formating
+  PAGE_NUM=1
+  while IFS= read -r PAGE; do
+    echo -ne "${TEXT_BLUE}--> Downloding webpage (${PAGE}) ${PAGE_NUM} of ${TOTAL_PAGES} ...${TEXT_RESET}"
+    { curl "${CURL_OPTS[@]}" "https://text.egwwritings.org/read/${PAGE}" | xidel -s --html - -e '//*[@id="r-pl"]' > "${TMP}/page-${PAGE_NUM}.html"; } || \
+      { echo -e "${TEXT_RED}--> Error downloading webpage${TEXT_RESET}"; exit 1; }
+    if [[ ${PAGE_NUM} != ${TOTAL_PAGES} ]]; then
+      echo '<div style="display:block; clear:both; page-break-after:always;"></div>' >> "${TMP}/page-${PAGE_NUM}.html" # Insert page break
+    fi
+    if [[ ${PAGE_NUM} -gt 1 ]]; then # Deal with duplicate pages
+      if diff -aq "${TMP}/page-$(( ${PAGE_NUM} - 1 )).html" "${TMP}/page-${PAGE_NUM}.html" >/dev/null; then
+        echo "${TMP}/page-${PAGE_NUM}.html" >> "${TMP}/remove.list"
+        echo -e "${TEXT_CYAN} SKIPPING DUPLICATE${TEXT_RESET}"
+      else
+        echo -e "${TEXT_GREEN} DONE${TEXT_RESET}"
+      fi
+    else
+      echo -e "${TEXT_GREEN} DONE${TEXT_RESET}"
+    fi
+    ((PAGE_NUM++)); sleep $(shuf -i 1-${MAX_SLEEP_TIME} -n 1) # Be nice to server
+    done <<<"${PAGES}"
+  if [[ -f "${TMP}/remove.list" ]]; then # Delete duplicate pages
+    while IFS= read -r FILE_PATH; do rm -- "${FILE_PATH}"; done < "${TMP}/remove.list"
+  fi
+  ls -v "${TMP}/"page-*.html | xargs cat >> "${TMP}/book.html" # Combine html pages
+
+  # Convert HTML to PDF
+  echo -e "\n${TEXT_PURPLE_BOLD}==> Converting HTML to PDF...${TEXT_RESET}"
+  wkhtmltopdf --page-size A5 \
+    --margin-left 15 --margin-right 15 --margin-top 15 --margin-bottom 15 \
+    --enable-local-file-access --encoding 'UTF-8' --outline \
+    --footer-center "[page]" --footer-line --footer-spacing 5 \
+    --title "${BOOK_CODE} - ${TITLE}" \
+    cover "${TMP}/cover.html" \
+    toc "${TMP}/book.html" \
+    "${OUT_DIR}/${OUT_NAME}"
+else
+  # Download available PDF
+  echo -e "\n${TEXT_PURPLE_BOLD}==> Downloding available PDF...${TEXT_RESET}"
+  curl -# --retry 3 --retry-all-errors --retry-delay 10 -fA "${UA}" -b "" "${PDF_URL}" \
+    --output "${OUT_DIR}/${OUT_NAME}" || \
+    { echo -e "${TEXT_RED}--> Error downloading PDF${TEXT_RESET}"; exit 1; }
+fi
+
+# Add metadata to PDF
+echo -e "\n${TEXT_PURPLE_BOLD}==> Adding metadata to PDF...${TEXT_RESET}"
+exiftool -overwrite_original -verbose \
+  -Title="${BOOK_CODE} (${BOOK_ID}) - ${TITLE}" \
+  -Author="${AUTHOR}" \
+  -Subject="${DESCRIPTION}" \
+  -Creator="${PDF_CREATOR}" \
+  -Producer="${PDF_PRODUCER}" \
+  "${OUT_DIR}/${OUT_NAME}"
+# exiftool -a -G1 "${OUT_DIR}/${OUT_NAME}" # Show PDF metadata
+
+echo -e "\n${TEXT_GREEN_BOLD}==> DONE :)${TEXT_RESET}"
+echo -e "${TEXT_BOLD}--> Your book is here:${TEXT_RESET} ${OUT_DIR}/${OUT_NAME}"

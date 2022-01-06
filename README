@@ -1,0 +1,16 @@
+egw-downloader
+--------------
+Simple downloader for books from Ellen G. White Estate that are unavailable to download as PDF or EPUB.
+
+USAGE
+-----
+egw-downloader <book_id> [output_directory]
+
+* Get Book ID from URL. eg: (Book ID - 133) https://m.egwwritings.org/en/book/133/info
+
+REQUIREMENTS
+------------
+curl exiftool wkhtmltopdf xidel
+
+* Download wkhtmltopdf with patched Qt from https://wkhtmltopdf.org
+* Download xidel from https://github.com/benibela/xidel
