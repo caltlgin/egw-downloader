@@ -49,10 +49,10 @@
 # https://stackoverflow.com/questions/10238363/how-to-get-wc-l-to-print-just-the-number-of-lines-without-file-name#10239606
 # https://www.linuxuprising.com/2019/07/how-to-edit-pdf-metadata-tags-on-linux.html
 # https://stackoverflow.com/questions/52668550/pass-variable-as-options-to-curl-in-shell-script-linux#52668615
-# https://wkhtmltopdf.org/usage/wkhtmltopdf.txt
-# https://exiftool.org/TagNames/PDF.html#Info
 # https://stackoverflow.com/questions/5142429/unix-how-to-delete-files-listed-in-a-file#21848934
 # https://unix.stackexchange.com/questions/385357/cat-files-in-specific-order-based-on-number-in-filename#516714
+# https://wkhtmltopdf.org/usage/wkhtmltopdf.txt
+# https://exiftool.org/TagNames/PDF.html#Info
 #
 # https://a.egwwritings.org/swagger/index.html?urls.primaryName=Covers%20API
 #
@@ -111,7 +111,7 @@ TMP="$(mktemp -d)"
 OUT_DIR="${2:-"${DEFAULT_OUTPUT_DIRECTORY}"}"; install -d "${OUT_DIR}"
 
 # Get main webpage for book
-echo -ne "\n${TEXT_PURPLE_BOLD}==> Downloding book information...${TEXT_RESET}"
+echo -ne "\n${TEXT_PURPLE_BOLD}==> Downloading book information...${TEXT_RESET}"
 curl "${CURL_OPTS[@]}" "https://text.egwwritings.org/book/b${BOOK_ID}" \
   > "${TMP}/online.html" || { echo -e "${TEXT_RED}--> Error downloading webpage${TEXT_RESET}"; exit 1; }
 if [[ $(grep 'Page Not Found' "${TMP}/online.html") ]]; then
@@ -147,19 +147,19 @@ OUT_NAME="$(echo "${BOOK_CODE} - ${TITLE}.pdf" | tr ' ' '_')"
 
 if [[ -z "${PDF_URL}" ]]; then
   # Download book cover
-  echo -ne "\n${TEXT_PURPLE_BOLD}==> Downloding book cover...${TEXT_RESET}"
+  echo -ne "\n${TEXT_PURPLE_BOLD}==> Downloading book cover...${TEXT_RESET}"
   curl "${CURL_OPTS[@]}" "${COVER_URL}" --output "${TMP}/cover.jpg" || \
     { echo -e "${TEXT_RED}--> Error downloading cover${TEXT_RESET}"; exit 1; }
   echo -e "${TEXT_GREEN} DONE${TEXT_RESET}"
   echo '<style>img{max-width: 100%; height: auto;}</style><img src="cover.jpg">' > "${TMP}/cover.html"
 
   # Download webpages of book
-  echo -e "\n${TEXT_PURPLE_BOLD}==> Downloding book webpages...${TEXT_RESET}"
-  echo '<style>*{font-family:sans-serif;text-align:justify}p{text-align:justify}.egwlink{font-style:italic;color:grey}.refCode{font-style:italic;color:grey}</style>' \
+  echo -e "\n${TEXT_PURPLE_BOLD}==> Downloading book webpages...${TEXT_RESET}"
+  echo '<style>*{font-family:sans-serif}p{text-align:justify}.egwlink,.refCode{font-style:italic;color:grey}</style>' \
     > "${TMP}/book.html" # Setup pdf formating
   PAGE_NUM=1
   while IFS= read -r PAGE; do
-    echo -ne "${TEXT_BLUE}--> Downloding webpage (${PAGE}) ${PAGE_NUM} of ${TOTAL_PAGES} ...${TEXT_RESET}"
+    echo -ne "${TEXT_BLUE}--> Downloading webpage (${PAGE}) ${PAGE_NUM} of ${TOTAL_PAGES} ...${TEXT_RESET}"
     { curl "${CURL_OPTS[@]}" "https://text.egwwritings.org/read/${PAGE}" | xidel -s --html - -e '//*[@id="r-pl"]' > "${TMP}/page-${PAGE_NUM}.html"; } || \
       { echo -e "${TEXT_RED}--> Error downloading webpage${TEXT_RESET}"; exit 1; }
     if [[ ${PAGE_NUM} != ${TOTAL_PAGES} ]]; then
@@ -194,7 +194,7 @@ if [[ -z "${PDF_URL}" ]]; then
     "${OUT_DIR}/${OUT_NAME}"
 else
   # Download available PDF
-  echo -e "\n${TEXT_PURPLE_BOLD}==> Downloding available PDF...${TEXT_RESET}"
+  echo -e "\n${TEXT_PURPLE_BOLD}==> Downloading available PDF...${TEXT_RESET}"
   curl -# --retry 3 --retry-all-errors --retry-delay 10 -fA "${UA}" -b "" "${PDF_URL}" \
     --output "${OUT_DIR}/${OUT_NAME}" || \
     { echo -e "${TEXT_RED}--> Error downloading PDF${TEXT_RESET}"; exit 1; }
