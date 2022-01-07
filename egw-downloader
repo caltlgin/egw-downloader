@@ -15,7 +15,7 @@
 #
 # REQUIREMENTS
 # ------------
-# curl exiftool wkhtmltopdf xidel
+# curl exiftool imagemagick wkhtmltopdf xidel
 #
 # * Download wkhtmltopdf with patched Qt from https://wkhtmltopdf.org
 # * Download xidel from https://github.com/benibela/xidel
@@ -53,11 +53,15 @@
 # https://unix.stackexchange.com/questions/385357/cat-files-in-specific-order-based-on-number-in-filename#516714
 # https://wkhtmltopdf.org/usage/wkhtmltopdf.txt
 # https://exiftool.org/TagNames/PDF.html#Info
-#
-# https://a.egwwritings.org/swagger/index.html?urls.primaryName=Covers%20API
+# https://legacy.imagemagick.org/Usage/annotating/
 #
 # https://m.egwwritings.org/en
 # https://text.egwwritings.org/allCollection/en
+#
+# IDS=(13961 14052 14053 14054 14055 14056 14057 14058 14059 14060 14061 14062 14063 14064 14065 14066 14067 14068 14069 14070 14071 14072 14073 14074 14075)
+# OR:
+# IDS="$(curl -s 'https://text.egwwritings.org/allCollection/en/1277' | grep -Po 'b\K[\d]+')"
+# echo "Array items: ${#IDS[@]}"; echo $IDS; for ID in ${IDS[@]}; do egw-downloader "${ID}"; done
 #
 # ==============================================================================
 # USER SETTINGS:
@@ -102,7 +106,7 @@ test-ping() (
 )
 
 check-input "${1}" || exit 1; BOOK_ID="${1}"
-depends curl exiftool wkhtmltopdf xidel || exit 1
+depends convert curl exiftool wkhtmltopdf xidel || exit 1
 test-ping || exit 1
 
 # ==============================================================================
@@ -114,7 +118,7 @@ OUT_DIR="${2:-"${DEFAULT_OUTPUT_DIRECTORY}"}"; install -d "${OUT_DIR}"
 echo -ne "\n${TEXT_PURPLE_BOLD}==> Downloading book information...${TEXT_RESET}"
 curl "${CURL_OPTS[@]}" "https://text.egwwritings.org/book/b${BOOK_ID}" \
   > "${TMP}/online.html" || { echo -e "${TEXT_RED}--> Error downloading webpage${TEXT_RESET}"; exit 1; }
-if [[ $(grep 'Page Not Found' "${TMP}/online.html") ]]; then
+if grep -q 'Page Not Found' "${TMP}/online.html"; then
   echo -e "${TEXT_RED}--> Book ID not found${TEXT_RESET}"; exit 1
 fi
 echo -e "${TEXT_GREEN} DONE${TEXT_RESET}"
@@ -129,14 +133,16 @@ echo -e "${TEXT_BOLD}Book URL (Text):${TEXT_RESET}   https://text.egwwritings.or
 PDF_URL="$(xidel -s "${TMP}/online.html" -e '//a[ends-with(@href, ".pdf")]/@href')" # Check if PDF is available to download
 if [[ -z "${PDF_URL}" ]]; then PDF_DL='NO'; else PDF_DL="YES (${PDF_URL})"; fi
 echo -e "${TEXT_BOLD}PDF Available:${TEXT_RESET}     ${PDF_DL}"
+# NB: Download huge image. https://a.egwwritings.org/swagger/index.html?urls.primaryName=Covers%20API
 COVER_URL="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="og:image"]/@content' | sed 's/_s/_k/')" || \
   { echo -e "${TEXT_RED}--> No book cover available${TEXT_RESET}"; exit 1; }
 echo -e "${TEXT_BOLD}Cover URL:${TEXT_RESET}         ${COVER_URL}"
 echo -e "${TEXT_BOLD}Book ID:${TEXT_RESET}           ${BOOK_ID}"
-BOOK_CODE="$(grep -Po '>Book code: \K[^<]*' "${TMP}/online.html")" || \
+# NB: Some Book codes contain a forward shash. eg; https://m.egwwritings.org/en/book/1302/info
+BOOK_CODE="$(grep -Po '>Book code: \K[^<]*' "${TMP}/online.html" | tr '/' '-')" || \
   { echo -e "${TEXT_RED}--> No book code available${TEXT_RESET}"; exit 1; }
 echo -e "${TEXT_BOLD}Book Code:${TEXT_RESET}         ${BOOK_CODE}"
-TITLE="$(xidel -s "${TMP}/online.html" -e '/html/head/title')" || \
+TITLE="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="title"]/@content')" || \
   { echo -e "${TEXT_RED}--> No book title available${TEXT_RESET}"; exit 1; }
 echo -e "${TEXT_BOLD}Title:${TEXT_RESET}             ${TITLE}"
 AUTHOR="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="og:book:author"]/@content' 2>/dev/null)"
@@ -148,8 +154,23 @@ OUT_NAME="$(echo "${BOOK_CODE} - ${TITLE}.pdf" | tr ' ' '_')"
 if [[ -z "${PDF_URL}" ]]; then
   # Download book cover
   echo -ne "\n${TEXT_PURPLE_BOLD}==> Downloading book cover...${TEXT_RESET}"
-  curl "${CURL_OPTS[@]}" "${COVER_URL}" --output "${TMP}/cover.jpg" || \
-    { echo -e "${TEXT_RED}--> Error downloading cover${TEXT_RESET}"; exit 1; }
+  download-cover() (
+    curl "${CURL_OPTS[@]}" "${1}" --output "${TMP}/cover.jpg" || \
+      { echo -e "${TEXT_RED}--> Error downloading cover${TEXT_RESET}"; false; }
+  )
+  CHECK_COVER_URL="$(curl "${COVER_URL}" -ILso '/dev/null' -w "%{url_effective}" || \
+    { echo -e "${TEXT_RED}--> Error checking cover url${TEXT_RESET}"; exit 1; })"
+  if grep -q 'no_cover' <<<"${CHECK_COVER_URL}"; then # Create cover
+    COVER_URL='https://egwwritings-a.akamaihd.net/covers/no_cover_k.jpg'
+    download-cover "${COVER_URL}" || exit 1
+    COVER_WIDTH=$(($(identify -format %w "${TMP}/cover.jpg") - 20))
+    convert -background '#0000' -fill white -gravity center -size ${COVER_WIDTH}x200 -pointsize 30 \
+      caption:"${TITLE}" "${TMP}/cover.jpg" +swap -gravity north -composite "${TMP}/cover.jpg"
+    convert -background '#0000' -fill white -gravity center -size ${COVER_WIDTH}x200 -pointsize 30 \
+      caption:"${AUTHOR}" "${TMP}/cover.jpg" +swap -gravity south -composite "${TMP}/cover.jpg"
+  else
+    download-cover "${COVER_URL}" || exit 1
+  fi
   echo -e "${TEXT_GREEN} DONE${TEXT_RESET}"
   echo '<style>img{max-width: 100%; height: auto;}</style><img src="cover.jpg">' > "${TMP}/cover.html"
 
@@ -163,9 +184,7 @@ if [[ -z "${PDF_URL}" ]]; then
     { curl "${CURL_OPTS[@]}" "https://text.egwwritings.org/read/${PAGE}" | xidel -s --html - -e '//*[@id="r-pl"]' > "${TMP}/page-${PAGE_NUM}.html"; } || \
       { echo -e "${TEXT_RED}--> Error downloading webpage${TEXT_RESET}"; exit 1; }
     sed -i 's/^[ \t]*//' "${TMP}/page-${PAGE_NUM}.html" # Remove space/tab at beginning of lines to help detect duplicate pages
-    if [[ ${PAGE_NUM} != ${TOTAL_PAGES} ]]; then # Insert page break
-      echo '<div style="display:block; clear:both; page-break-after:always;"></div>' >> "${TMP}/page-${PAGE_NUM}.html"
-    fi
+    echo '<div style="display:block; clear:both; page-break-after:always;"></div>' >> "${TMP}/page-${PAGE_NUM}.html" # Insert page break
     if [[ ${PAGE_NUM} -gt 1 ]]; then # Deal with duplicate pages
       if diff -aq "${TMP}/page-$(( ${PAGE_NUM} - 1 )).html" "${TMP}/page-${PAGE_NUM}.html" >/dev/null; then
         echo "${TMP}/page-${PAGE_NUM}.html" >> "${TMP}/remove.list"
