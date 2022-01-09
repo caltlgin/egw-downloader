@@ -20,6 +20,11 @@
 # * Download wkhtmltopdf with patched Qt from https://wkhtmltopdf.org
 # * Download xidel from https://github.com/benibela/xidel
 #
+# DOWNLOADS
+# ------------
+# To avoid re-running this script against the Ellen G. White servers, I have uploaded the books to:
+# https://archive.org/details/@caltlgin-stsodaat?and[]=subject%3A%22ellen+g.+white%22
+#
 # ==============================================================================
 # MIT License
 #
@@ -58,10 +63,17 @@
 # https://m.egwwritings.org/en
 # https://text.egwwritings.org/allCollection/en
 #
-# IDS=(13961 14052 14053 14054 14055 14056 14057 14058 14059 14060 14061 14062 14063 14064 14065 14066 14067 14068 14069 14070 14071 14072 14073 14074 14075)
+# IDS=(); IDS=(13961 14052 14053 14054 14055 14056 14057 14058 14059 14060 14061 14062 14063 14064 14065 14066 14067 14068 14069 14070 14071 14072 14073 14074 14075)
+# echo ${#IDS[@]}; echo ${IDS[@]}; for ID in ${IDS[@]}; do egw-downloader "${ID}"; done
 # OR:
-# IDS="$(curl -s 'https://text.egwwritings.org/allCollection/en/1277' | grep -Po 'b\K[\d]+')"
-# echo "Array items: ${#IDS[@]}"; echo $IDS; for ID in ${IDS[@]}; do egw-downloader "${ID}"; done
+# IDS=(); IDS="$(curl -s 'https://text.egwwritings.org/allCollection/en/1277' | grep -Po 'b\K[\d]+')"
+# echo "${IDS[@]}" | wc -l; echo $IDS; for ID in ${IDS[@]}; do egw-downloader "${ID}"; done
+#
+# ==============================================================================
+# TESTS:
+# Book code contain a forward shash: https://m.egwwritings.org/en/book/1302/info
+# Book with no cover: https://m.egwwritings.org/en/book/1290/info
+# Book with cover and PDF: https://m.egwwritings.org/en/book/1613/info
 #
 # ==============================================================================
 # USER SETTINGS:
@@ -142,7 +154,8 @@ echo -e "${TEXT_BOLD}Book ID:${TEXT_RESET}           ${BOOK_ID}"
 BOOK_CODE="$(grep -Po '>Book code: \K[^<]*' "${TMP}/online.html" | tr '/' '-')" || \
   { echo -e "${TEXT_RED}--> No book code available${TEXT_RESET}"; exit 1; }
 echo -e "${TEXT_BOLD}Book Code:${TEXT_RESET}         ${BOOK_CODE}"
-TITLE="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="title"]/@content')" || \
+# NB: Some Book titles contain a forward shash. eg; https://m.egwwritings.org/en/book/34/info
+TITLE="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="title"]/@content' | tr '/' '-')" || \
   { echo -e "${TEXT_RED}--> No book title available${TEXT_RESET}"; exit 1; }
 echo -e "${TEXT_BOLD}Title:${TEXT_RESET}             ${TITLE}"
 AUTHOR="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="og:book:author"]/@content' 2>/dev/null)"
