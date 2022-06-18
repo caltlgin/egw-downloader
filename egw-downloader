@@ -63,17 +63,21 @@
 # https://m.egwwritings.org/en
 # https://text.egwwritings.org/allCollection/en
 #
-# IDS=(); IDS=(13961 14052 14053 14054 14055 14056 14057 14058 14059 14060 14061 14062 14063 14064 14065 14066 14067 14068 14069 14070 14071 14072 14073 14074 14075)
+# curl -s 'https://ellenwhite.org/search/docs?search_text=&offset=0&limit=2000&filters=%7B%22types%22%3A%7B%22publication%22%3A%7B%22controllers%22%3A%7B%22lang%22%3A%7B%22value%22%3A%5B%22English%22%5D%7D%2C%22type_id%22%3A%7B%22value%22%3A%5B2%2C6%2C15%2C22%5D%7D%7D%7D%7D%2C%22media_types%22%3A%7B%7D%2C%22sort%22%3A%22contentSequence%22%7D&publications_fulltext=false' | jq | grep -Po 'https.*?\.(epub|mobi|pdf|zip)' > dl.list
+#
+# IDS=; IDS=(13961 14052 14053 14054 14055 14056 14057 14058 14059 14060 14061 14062 14063 14064 14065 14066 14067 14068 14069 14070 14071 14072 14073 14074 14075)
 # echo ${#IDS[@]}; echo ${IDS[@]}; for ID in ${IDS[@]}; do egw-downloader "${ID}"; done
 # OR:
-# IDS=(); IDS="$(curl -s 'https://text.egwwritings.org/allCollection/en/1277' | grep -Po 'b\K[\d]+')"
-# echo "${IDS[@]}" | wc -l; echo $IDS; for ID in ${IDS[@]}; do egw-downloader "${ID}"; done
+# IDS=; declare -a IDS="$(curl -s 'https://text.egwwritings.org/allCollection/en/1277' | grep -Po 'b\K[\d]+')"
+# echo "${IDS[@]}" | wc -l; echo ${IDS[@]}; for ID in ${IDS[@]}; do egw-downloader "${ID}"; done
 #
 # ==============================================================================
 # TESTS:
-# Book code contain a forward shash: https://m.egwwritings.org/en/book/1302/info
+# Book title contains a forward slash: https://m.egwwritings.org/en/book/34/info
+# Book code contains a forward slash: https://m.egwwritings.org/en/book/1302/info
 # Book with no cover: https://m.egwwritings.org/en/book/1290/info
-# Book with cover and PDF: https://m.egwwritings.org/en/book/1613/info
+# Book with cover: https://m.egwwritings.org/en/book/14266/info
+# Book with PDF: https://m.egwwritings.org/en/book/1613/info
 #
 # ==============================================================================
 # USER SETTINGS:
@@ -81,7 +85,6 @@ DEFAULT_OUTPUT_DIRECTORY="${HOME}/Downloads/egw-downloader"
 PDF_CREATOR='EGW Downloader - github.com/caltlgin/egw-downloader'
 PDF_PRODUCER='CALTLGIN'
 PING_IP_ADDRESS='9.9.9.9'
-UA='Mozilla/5.0 (Windows NT 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'
 CURL_OPTS=(--fail --retry 3 --retry-all-errors --retry-delay 10 --silent --user-agent "${UA}" --cookie "")
 MAX_SLEEP_TIME=1 # Maximum sleep time in seconds between page downloads
 # ==============================================================================
@@ -126,6 +129,11 @@ test-ping || exit 1
 TMP="$(mktemp -d)"
 OUT_DIR="${2:-"${DEFAULT_OUTPUT_DIRECTORY}"}"; install -d "${OUT_DIR}"
 
+# Get user-agent string
+echo -e "\n${TEXT_PURPLE_BOLD}==> Getting user-agent string...${TEXT_RESET}"
+UA="$(xidel --no-check-certificate -s 'https://generatefakename.com/user-agent' -e '//*[@class="panel-body"]/h3' | head -1)"
+echo -e "${TEXT_BOLD}User Agent:${TEXT_RESET}        ${UA}"
+
 # Get main webpage for book
 echo -ne "\n${TEXT_PURPLE_BOLD}==> Downloading book information...${TEXT_RESET}"
 curl "${CURL_OPTS[@]}" "https://text.egwwritings.org/book/b${BOOK_ID}" \
@@ -146,8 +154,9 @@ PDF_URL="$(xidel -s "${TMP}/online.html" -e '//a[ends-with(@href, ".pdf")]/@href
 if [[ -z "${PDF_URL}" ]]; then PDF_DL='NO'; else PDF_DL="YES (${PDF_URL})"; fi
 echo -e "${TEXT_BOLD}PDF Available:${TEXT_RESET}     ${PDF_DL}"
 # NB: Download huge image. https://a.egwwritings.org/swagger/index.html?urls.primaryName=Covers%20API
-COVER_URL="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="og:image"]/@content' | sed 's/_s/_k/')" || \
-  { echo -e "${TEXT_RED}--> No book cover available${TEXT_RESET}"; exit 1; }
+# COVER_URL="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="og:image"]/@content' | sed 's/_s/_k/')" || \
+#   { echo -e "${TEXT_RED}--> No book cover available${TEXT_RESET}"; exit 1; }
+COVER_URL="https://media1.egwwritings.org/covers/${BOOK_ID}_k.jpg"
 echo -e "${TEXT_BOLD}Cover URL:${TEXT_RESET}         ${COVER_URL}"
 echo -e "${TEXT_BOLD}Book ID:${TEXT_RESET}           ${BOOK_ID}"
 # NB: Some Book codes contain a forward shash. eg; https://m.egwwritings.org/en/book/1302/info
@@ -155,12 +164,12 @@ BOOK_CODE="$(grep -Po '>Book code: \K[^<]*' "${TMP}/online.html" | tr '/' '-')" 
   { echo -e "${TEXT_RED}--> No book code available${TEXT_RESET}"; exit 1; }
 echo -e "${TEXT_BOLD}Book Code:${TEXT_RESET}         ${BOOK_CODE}"
 # NB: Some Book titles contain a forward shash. eg; https://m.egwwritings.org/en/book/34/info
-TITLE="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="title"]/@content' | tr '/' '-')" || \
+TITLE="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="og:title"]/@content' | tr '/' '-')" || \
   { echo -e "${TEXT_RED}--> No book title available${TEXT_RESET}"; exit 1; }
 echo -e "${TEXT_BOLD}Title:${TEXT_RESET}             ${TITLE}"
 AUTHOR="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="og:book:author"]/@content' 2>/dev/null)"
 echo -e "${TEXT_BOLD}Author:${TEXT_RESET}            ${AUTHOR}"
-DESCRIPTION="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="description"]/@content' 2>/dev/null)"
+DESCRIPTION="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="og:description"]/@content' 2>/dev/null)"
 echo -e "${TEXT_BOLD}Description:${TEXT_RESET}       ${DESCRIPTION}"
 OUT_NAME="$(echo "${BOOK_CODE} - ${TITLE}.pdf" | tr ' ' '_')"
 
@@ -171,10 +180,13 @@ if [[ -z "${PDF_URL}" ]]; then
     curl "${CURL_OPTS[@]}" "${1}" --output "${TMP}/cover.jpg" || \
       { echo -e "${TEXT_RED}--> Error downloading cover${TEXT_RESET}"; false; }
   )
-  CHECK_COVER_URL="$(curl "${COVER_URL}" -ILso '/dev/null' -w "%{url_effective}" || \
-    { echo -e "${TEXT_RED}--> Error checking cover url${TEXT_RESET}"; exit 1; })"
-  if grep -q 'no_cover' <<<"${CHECK_COVER_URL}"; then # Create cover
-    COVER_URL='https://egwwritings-a.akamaihd.net/covers/no_cover_k.jpg'
+  # CHECK_COVER_URL="$(curl "${COVER_URL}" -ILso '/dev/null' -w "%{url_effective}" || \
+  #   { echo -e "${TEXT_RED}--> Error checking cover url${TEXT_RESET}"; exit 1; })"
+  # if grep -q 'no_cover' <<<"${CHECK_COVER_URL}"; then # Create cover
+  COVER_RAW_URL="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="og:image"]/@content')"
+  if curl -s "${COVER_RAW_URL}" | grep -q 'Cover not found'; then # Create cover
+    # COVER_URL='https://egwwritings-a.akamaihd.net/covers/no_cover_k.jpg'
+    COVER_URL='https://media1.egwwritings.org/covers/no_cover_k.jpg'
     download-cover "${COVER_URL}" || exit 1
     COVER_WIDTH=$(($(identify -format %w "${TMP}/cover.jpg") - 20))
     convert -background '#0000' -fill white -gravity center -size ${COVER_WIDTH}x200 -pointsize 30 \
