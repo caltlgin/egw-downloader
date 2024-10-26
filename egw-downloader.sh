@@ -1,53 +1,7 @@
 #!/bin/bash
 
-# ==============================================================================
-# README:
-#
-# egw-downloader
-# --------------
-# Simple downloader for books from Ellen G. White Estate that are unavailable to download as PDF or EPUB.
-#
-# USAGE
-# -----
-# egw-downloader <book_id> [output_directory]
-#
-# * Get Book ID from URL. eg: (Book ID - 133) https://m.egwwritings.org/en/book/133/info
-#
-# REQUIREMENTS
-# ------------
-# curl exiftool imagemagick wkhtmltopdf xidel
-#
-# * Download wkhtmltopdf with patched Qt from https://wkhtmltopdf.org
-# * Download xidel from https://github.com/benibela/xidel
-#
-# DOWNLOADS
-# ---------
-# To avoid re-running this script against the Ellen G. White servers, I have uploaded the books to:
-# https://archive.org/details/@caltlgin-stsodaat?and[]=subject%3A%22ellen+g.+white%22
-#
-# ==============================================================================
-# MIT License
-#
-# Copyright (c) 2022 CALTLGIN
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
-#
+# shellcheck disable=SC2034
+
 # ==============================================================================
 # REFERENCE:
 # https://www.tobias-schwarz.com/en/posts/10/
@@ -68,7 +22,7 @@
 # IDS=; IDS=(13961 14052 14053 14054 14055 14056 14057 14058 14059 14060 14061 14062 14063 14064 14065 14066 14067 14068 14069 14070 14071 14072 14073 14074 14075)
 # echo ${#IDS[@]}; echo ${IDS[@]}; for ID in ${IDS[@]}; do egw-downloader "${ID}"; done
 # OR:
-# IDS=; declare -a IDS="$(curl -s 'https://text.egwwritings.org/allCollection/en/1277' | grep -Po 'b\K[\d]+')"
+# IDS=; declare -a IDS="$(curl -s 'https://text.egwwritings.org/allCollection/en/1277' | grep -Po '/b\K[\d]+')"
 # echo "${IDS[@]}" | wc -l; echo ${IDS[@]}; for ID in ${IDS[@]}; do egw-downloader "${ID}"; done
 #
 # ==============================================================================
@@ -82,11 +36,12 @@
 # ==============================================================================
 # USER SETTINGS:
 DEFAULT_OUTPUT_DIRECTORY="${HOME}/Downloads/egw-downloader"
-PDF_CREATOR='EGW Downloader - github.com/caltlgin/egw-downloader'
-PDF_PRODUCER='CALTLGIN'
-PING_IP_ADDRESS='9.9.9.9'
+PDF_CREATOR='EGW Downloader - github.com/clove3am/egw-downloader'
+PDF_PRODUCER='clove3am'
+PING_IP_ADDRESS='1.1.1.1' # IP address to ping to check for internet connection
 CURL_OPTS=(--fail --retry 3 --retry-all-errors --retry-delay 10 --silent --user-agent "${UA}" --cookie "")
-MAX_SLEEP_TIME=1 # Maximum sleep time in seconds between page downloads
+MAX_SLEEP_TIME=10 # Maximum sleep time in seconds between page downloads
+UA='Firefox'      # User-agent string
 # ==============================================================================
 
 if [ -t 1 ]; then
@@ -104,42 +59,53 @@ if [ -t 1 ]; then
 fi
 
 check-input() (
-  [[ -n "${1}" ]] || \
-  { echo -e "${TEXT_BOLD}==> USAGE:${TEXT_RESET} ${0} ${TEXT_BLUE}<book_id>${TEXT_RESET} ${TEXT_BLUE}[output_directory]${TEXT_RESET}"; false; }
+  [[ -n "${1}" ]] ||
+    {
+      echo -e "${TEXT_BOLD}==> USAGE:${TEXT_RESET} ${0} ${TEXT_BLUE}<book_id>${TEXT_RESET} ${TEXT_BLUE}[output_directory]${TEXT_RESET}"
+      false
+    }
 )
 depends() (
-  ERR=0; # shellcheck disable=SC2068
+  ERR=0
+  # shellcheck disable=SC2068
   for DEPENDS in $@; do
-    command -v "${DEPENDS}" >/dev/null || \
-      { echo -e "${TEXT_RED}--> ${DEPENDS} is not installed${TEXT_RESET}"; ERR=1; }
+    command -v "${DEPENDS}" >/dev/null ||
+      {
+        echo -e "${TEXT_RED}--> ${DEPENDS} is not installed${TEXT_RESET}"
+        ERR=1
+      }
   done
   [[ "${ERR}" -eq 0 ]] || false
 )
 test-ping() (
-  ping -q -c 1 "${PING_IP_ADDRESS}" >/dev/null || \
-  { echo -e "${TEXT_RED}--> No internet connection detected${TEXT_RESET}"; false; }
+  ping -q -c 1 "${PING_IP_ADDRESS}" >/dev/null ||
+    {
+      echo -e "${TEXT_RED}--> No internet connection detected${TEXT_RESET}"
+      false
+    }
 )
 
-check-input "${1}" || exit 1; BOOK_ID="${1}"
+check-input "${1}" || exit 1
+BOOK_ID="${1}"
 depends convert curl exiftool wkhtmltopdf xidel || exit 1
 test-ping || exit 1
 
 # ==============================================================================
 # Create required directories
 TMP="$(mktemp -d)"
-OUT_DIR="${2:-"${DEFAULT_OUTPUT_DIRECTORY}"}"; install -d "${OUT_DIR}"
-
-# Get user-agent string
-echo -e "\n${TEXT_PURPLE_BOLD}==> Getting user-agent string...${TEXT_RESET}"
-UA="$(xidel --no-check-certificate -s 'https://generatefakename.com/user-agent' -e '//*[@class="panel-body"]/h3' | head -1)"
-echo -e "${TEXT_BOLD}User Agent:${TEXT_RESET}        ${UA}"
+OUT_DIR="${2:-"${DEFAULT_OUTPUT_DIRECTORY}"}"
+install -d "${OUT_DIR}"
 
 # Get main webpage for book
 echo -ne "\n${TEXT_PURPLE_BOLD}==> Downloading book information...${TEXT_RESET}"
 curl "${CURL_OPTS[@]}" "https://text.egwwritings.org/book/b${BOOK_ID}" \
-  > "${TMP}/online.html" || { echo -e "${TEXT_RED}--> Error downloading webpage${TEXT_RESET}"; exit 1; }
+  >"${TMP}/online.html" || {
+  echo -e "${TEXT_RED}--> Error downloading webpage${TEXT_RESET}"
+  exit 1
+}
 if grep -q 'Page Not Found' "${TMP}/online.html"; then
-  echo -e "${TEXT_RED}--> Book ID not found${TEXT_RESET}"; exit 1
+  echo -e "${TEXT_RED}--> Book ID not found${TEXT_RESET}"
+  exit 1
 fi
 echo -e "${TEXT_GREEN} DONE${TEXT_RESET}"
 
@@ -160,25 +126,35 @@ COVER_URL="https://media1.egwwritings.org/covers/${BOOK_ID}_k.jpg"
 echo -e "${TEXT_BOLD}Cover URL:${TEXT_RESET}         ${COVER_URL}"
 echo -e "${TEXT_BOLD}Book ID:${TEXT_RESET}           ${BOOK_ID}"
 # NB: Some Book codes contain a forward shash. eg; https://m.egwwritings.org/en/book/1302/info
-BOOK_CODE="$(grep -Po '>Book code: \K[^<]*' "${TMP}/online.html" | tr '/' '-')" || \
-  { echo -e "${TEXT_RED}--> No book code available${TEXT_RESET}"; exit 1; }
+BOOK_CODE="$(grep -Po '>Book code: \K[^<]*' "${TMP}/online.html" | tr '/' '-')" ||
+  {
+    echo -e "${TEXT_RED}--> No book code available${TEXT_RESET}"
+    exit 1
+  }
 echo -e "${TEXT_BOLD}Book Code:${TEXT_RESET}         ${BOOK_CODE}"
 # NB: Some Book titles contain a forward shash. eg; https://m.egwwritings.org/en/book/34/info
-TITLE="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="og:title"]/@content' | tr '/' '-')" || \
-  { echo -e "${TEXT_RED}--> No book title available${TEXT_RESET}"; exit 1; }
+TITLE="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="og:title"]/@content' | tr '/' '-')" ||
+  {
+    echo -e "${TEXT_RED}--> No book title available${TEXT_RESET}"
+    exit 1
+  }
 echo -e "${TEXT_BOLD}Title:${TEXT_RESET}             ${TITLE}"
 AUTHOR="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="og:book:author"]/@content' 2>/dev/null)"
 echo -e "${TEXT_BOLD}Author:${TEXT_RESET}            ${AUTHOR}"
 DESCRIPTION="$(xidel -s "${TMP}/online.html" -e '/html/head/meta[@property="og:description"]/@content' 2>/dev/null)"
 echo -e "${TEXT_BOLD}Description:${TEXT_RESET}       ${DESCRIPTION}"
-OUT_NAME="$(echo "${BOOK_CODE} - ${TITLE}.pdf" | tr ' ' '_')"
+# OUT_NAME="$(echo "${BOOK_CODE} - ${TITLE}.pdf" | tr ' ' '_')"
+OUT_NAME="${BOOK_CODE} - ${TITLE}.pdf"
 
 if [[ -z "${PDF_URL}" ]]; then
   # Download book cover
   echo -ne "\n${TEXT_PURPLE_BOLD}==> Downloading book cover...${TEXT_RESET}"
   download-cover() (
-    curl "${CURL_OPTS[@]}" "${1}" --output "${TMP}/cover.jpg" || \
-      { echo -e "${TEXT_RED}--> Error downloading cover${TEXT_RESET}"; false; }
+    curl "${CURL_OPTS[@]}" "${1}" --output "${TMP}/cover.jpg" ||
+      {
+        echo -e "${TEXT_RED}--> Error downloading cover${TEXT_RESET}"
+        false
+      }
   )
   # CHECK_COVER_URL="$(curl "${COVER_URL}" -ILso '/dev/null' -w "%{url_effective}" || \
   #   { echo -e "${TEXT_RED}--> Error checking cover url${TEXT_RESET}"; exit 1; })"
@@ -197,22 +173,25 @@ if [[ -z "${PDF_URL}" ]]; then
     download-cover "${COVER_URL}" || exit 1
   fi
   echo -e "${TEXT_GREEN} DONE${TEXT_RESET}"
-  echo '<style>img{max-width: 100%; height: auto;}</style><img src="cover.jpg">' > "${TMP}/cover.html"
+  echo '<style>img{max-width: 100%; height: auto;}</style><img src="cover.jpg">' >"${TMP}/cover.html"
 
   # Download webpages of book
   echo -e "\n${TEXT_PURPLE_BOLD}==> Downloading book webpages...${TEXT_RESET}"
   echo '<style>*{font-family:sans-serif}p{text-align:justify}.egwlink,.refCode{font-style:italic;color:grey}</style>' \
-    > "${TMP}/book.html" # Setup pdf formating
+    >"${TMP}/book.html" # Setup pdf formating
   PAGE_NUM=1
   while IFS= read -r PAGE; do
     echo -ne "${TEXT_BLUE}--> Downloading webpage (${PAGE}) ${PAGE_NUM} of ${TOTAL_PAGES} ...${TEXT_RESET}"
-    { curl "${CURL_OPTS[@]}" "https://text.egwwritings.org/read/${PAGE}" | xidel -s --html - -e '//*[@id="r-pl"]' > "${TMP}/page-${PAGE_NUM}.html"; } || \
-      { echo -e "${TEXT_RED}--> Error downloading webpage${TEXT_RESET}"; exit 1; }
-    sed -i 's/^[ \t]*//' "${TMP}/page-${PAGE_NUM}.html" # Remove space/tab at beginning of lines to help detect duplicate pages
-    echo '<div style="display:block; clear:both; page-break-after:always;"></div>' >> "${TMP}/page-${PAGE_NUM}.html" # Insert page break
-    if [[ ${PAGE_NUM} -gt 1 ]]; then # Deal with duplicate pages
-      if diff -aq "${TMP}/page-$(( ${PAGE_NUM} - 1 )).html" "${TMP}/page-${PAGE_NUM}.html" >/dev/null; then
-        echo "${TMP}/page-${PAGE_NUM}.html" >> "${TMP}/remove.list"
+    { curl "${CURL_OPTS[@]}" "https://text.egwwritings.org/read/${PAGE}" | xidel -s --html - -e '//*[@id="r-pl"]' >"${TMP}/page-${PAGE_NUM}.html"; } ||
+      {
+        echo -e "${TEXT_RED}--> Error downloading webpage${TEXT_RESET}"
+        exit 1
+      }
+    sed -i 's/^[ \t]*//' "${TMP}/page-${PAGE_NUM}.html"                                                             # Remove space/tab at beginning of lines to help detect duplicate pages
+    echo '<div style="display:block; clear:both; page-break-after:always;"></div>' >>"${TMP}/page-${PAGE_NUM}.html" # Insert page break
+    if [[ ${PAGE_NUM} -gt 1 ]]; then                                                                                # Deal with duplicate pages
+      if diff -aq "${TMP}/page-$((${PAGE_NUM} - 1)).html" "${TMP}/page-${PAGE_NUM}.html" >/dev/null; then
+        echo "${TMP}/page-${PAGE_NUM}.html" >>"${TMP}/remove.list"
         echo -e "${TEXT_CYAN} SKIPPING DUPLICATE${TEXT_RESET}"
       else
         echo -e "${TEXT_GREEN} DONE${TEXT_RESET}"
@@ -220,12 +199,13 @@ if [[ -z "${PDF_URL}" ]]; then
     else
       echo -e "${TEXT_GREEN} DONE${TEXT_RESET}"
     fi
-    ((PAGE_NUM++)); sleep $(shuf -i 1-${MAX_SLEEP_TIME} -n 1) # Be nice to server
-    done <<<"${PAGES}"
+    ((PAGE_NUM++))
+    sleep $(shuf -i 1-${MAX_SLEEP_TIME} -n 1) # Be nice to server
+  done <<<"${PAGES}"
   if [[ -f "${TMP}/remove.list" ]]; then # Delete duplicate pages
-    while IFS= read -r FILE_PATH; do rm -- "${FILE_PATH}"; done < "${TMP}/remove.list"
+    while IFS= read -r FILE_PATH; do rm -- "${FILE_PATH}"; done <"${TMP}/remove.list"
   fi
-  ls -v "${TMP}/"page-*.html | xargs cat >> "${TMP}/book.html" # Combine html pages
+  ls -v "${TMP}/"page-*.html | xargs cat >>"${TMP}/book.html" # Combine html pages
 
   # Convert HTML to PDF
   echo -e "\n${TEXT_PURPLE_BOLD}==> Converting HTML to PDF...${TEXT_RESET}"
@@ -241,8 +221,11 @@ else
   # Download available PDF
   echo -e "\n${TEXT_PURPLE_BOLD}==> Downloading available PDF...${TEXT_RESET}"
   curl -# --retry 3 --retry-all-errors --retry-delay 10 -fA "${UA}" -b "" "${PDF_URL}" \
-    --output "${OUT_DIR}/${OUT_NAME}" || \
-    { echo -e "${TEXT_RED}--> Error downloading PDF${TEXT_RESET}"; exit 1; }
+    --output "${OUT_DIR}/${OUT_NAME}" ||
+    {
+      echo -e "${TEXT_RED}--> Error downloading PDF${TEXT_RESET}"
+      exit 1
+    }
 fi
 
 # Add metadata to PDF
